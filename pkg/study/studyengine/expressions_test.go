@@ -3154,8 +3154,16 @@ func TestEvalGetTsForNextISOWeek(t *testing.T) {
 		ts := ret.(float64)
 		tsD := time.Unix(int64(ts), 0)
 		refTs = refTs.AddDate(1, 0, 0)
-		// beginning of the year
+		// Find the first date in ISO week 1. January 1 can belong to
+		// the previous ISO year (for example, January 1, 2027 is 2026-W53).
 		refTs = time.Date(refTs.Year(), 1, 1, 0, 0, 0, 0, time.Local)
+		for {
+			_, week := refTs.ISOWeek()
+			if week == 1 {
+				break
+			}
+			refTs = refTs.AddDate(0, 0, 1)
+		}
 		y_i, w_i := refTs.ISOWeek()
 		y, w := tsD.ISOWeek()
 		if y != y_i || w != w_i {
