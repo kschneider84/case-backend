@@ -3210,6 +3210,323 @@ func TestEvalGetTsForNextISOWeek(t *testing.T) {
 	})
 }
 
+func TestEvalGetTsForStartOfISOWeek(t *testing.T) {
+	t.Run("wrong reference type", func(t *testing.T) {
+		exp := studyTypes.Expression{Name: "getTsForStartOfISOWeek", Data: []studyTypes.ExpressionArg{
+			{DType: "str", Str: "test"},
+		}}
+		EvalContext := EvalContext{}
+		_, err := ExpressionEval(exp, EvalContext)
+		if err == nil {
+			t.Error("should return type error")
+			return
+		}
+	})
+
+	t.Run("without reference", func(t *testing.T) {
+		exp := studyTypes.Expression{Name: "getTsForStartOfISOWeek", Data: []studyTypes.ExpressionArg{}}
+		EvalContext := EvalContext{}
+		ret, err := ExpressionEval(exp, EvalContext)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		ts := ret.(float64)
+		tsD := time.Unix(int64(ts), 0)
+
+		refTs := Now()
+		y_i, w_i := refTs.ISOWeek()
+		y, w := tsD.ISOWeek()
+		if y != y_i || w != w_i {
+			t.Errorf("unexpected value: %d-%d, expected %d-%d", y, w, y_i, w_i)
+		}
+
+		if tsD.Weekday() != time.Monday {
+			t.Errorf("unexpected weekday: %s, expected Monday", tsD.Weekday())
+		}
+		if tsD.Hour() != 0 || tsD.Minute() != 0 || tsD.Second() != 0 {
+			t.Errorf("unexpected time of day: %02d:%02d:%02d, expected 00:00:00", tsD.Hour(), tsD.Minute(), tsD.Second())
+		}
+	})
+
+	t.Run("with absolute reference on a wednesday", func(t *testing.T) {
+		refTs := time.Date(2023, 9, 13, 15, 30, 0, 0, time.Local) // Wednesday
+		exp := studyTypes.Expression{Name: "getTsForStartOfISOWeek", Data: []studyTypes.ExpressionArg{
+			{DType: "num", Num: float64(refTs.Unix())},
+		}}
+		EvalContext := EvalContext{}
+		ret, err := ExpressionEval(exp, EvalContext)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		ts := ret.(float64)
+		tsD := time.Unix(int64(ts), 0)
+
+		y_i, w_i := refTs.ISOWeek()
+		y, w := tsD.ISOWeek()
+		if y != y_i || w != w_i {
+			t.Errorf("unexpected value: %d-%d, expected %d-%d", y, w, y_i, w_i)
+		}
+
+		expectedDate := time.Date(2023, 9, 11, 0, 0, 0, 0, time.Local) // Monday of that week
+		if !tsD.Equal(expectedDate) {
+			t.Errorf("unexpected date: %s, expected %s", tsD, expectedDate)
+		}
+	})
+
+	t.Run("with absolute reference on a monday", func(t *testing.T) {
+		refTs := time.Date(2023, 9, 11, 8, 0, 0, 0, time.Local) // already a Monday
+		exp := studyTypes.Expression{Name: "getTsForStartOfISOWeek", Data: []studyTypes.ExpressionArg{
+			{DType: "num", Num: float64(refTs.Unix())},
+		}}
+		EvalContext := EvalContext{}
+		ret, err := ExpressionEval(exp, EvalContext)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		ts := ret.(float64)
+		tsD := time.Unix(int64(ts), 0)
+
+		expectedDate := time.Date(2023, 9, 11, 0, 0, 0, 0, time.Local)
+		if !tsD.Equal(expectedDate) {
+			t.Errorf("unexpected date: %s, expected %s", tsD, expectedDate)
+		}
+	})
+
+	t.Run("with absolute reference on a sunday", func(t *testing.T) {
+		refTs := time.Date(2023, 9, 17, 23, 59, 59, 0, time.Local) // Sunday
+		exp := studyTypes.Expression{Name: "getTsForStartOfISOWeek", Data: []studyTypes.ExpressionArg{
+			{DType: "num", Num: float64(refTs.Unix())},
+		}}
+		EvalContext := EvalContext{}
+		ret, err := ExpressionEval(exp, EvalContext)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		ts := ret.(float64)
+		tsD := time.Unix(int64(ts), 0)
+
+		expectedDate := time.Date(2023, 9, 11, 0, 0, 0, 0, time.Local) // Monday of the same ISO week
+		if !tsD.Equal(expectedDate) {
+			t.Errorf("unexpected date: %s, expected %s", tsD, expectedDate)
+		}
+	})
+
+	t.Run("with relative reference", func(t *testing.T) {
+		exp := studyTypes.Expression{Name: "getTsForStartOfISOWeek", Data: []studyTypes.ExpressionArg{
+			{DType: "exp", Exp: &studyTypes.Expression{
+				Name: "timestampWithOffset",
+				Data: []studyTypes.ExpressionArg{
+					{DType: "num", Num: 0},
+				},
+			}},
+		}}
+		EvalContext := EvalContext{}
+		ret, err := ExpressionEval(exp, EvalContext)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		ts := ret.(float64)
+		tsD := time.Unix(int64(ts), 0)
+
+		refTs := Now()
+		y_i, w_i := refTs.ISOWeek()
+		y, w := tsD.ISOWeek()
+		if y != y_i || w != w_i {
+			t.Errorf("unexpected value: %d-%d, expected %d-%d", y, w, y_i, w_i)
+		}
+	})
+}
+
+func TestEvalTimestampDiff(t *testing.T) {
+	t.Run("wrong number of arguments", func(t *testing.T) {
+		exp := studyTypes.Expression{Name: "timestampDiff", Data: []studyTypes.ExpressionArg{
+			{DType: "num", Num: 100},
+		}}
+		EvalContext := EvalContext{}
+		_, err := ExpressionEval(exp, EvalContext)
+		if err == nil {
+			t.Error("should return error for wrong number of arguments")
+			return
+		}
+	})
+
+	t.Run("wrong type for argument 1", func(t *testing.T) {
+		exp := studyTypes.Expression{Name: "timestampDiff", Data: []studyTypes.ExpressionArg{
+			{DType: "str", Str: "test"},
+			{DType: "num", Num: 100},
+		}}
+		EvalContext := EvalContext{}
+		_, err := ExpressionEval(exp, EvalContext)
+		if err == nil {
+			t.Error("should return type error")
+			return
+		}
+	})
+
+	t.Run("wrong type for argument 2", func(t *testing.T) {
+		exp := studyTypes.Expression{Name: "timestampDiff", Data: []studyTypes.ExpressionArg{
+			{DType: "num", Num: 100},
+			{DType: "str", Str: "test"},
+		}}
+		EvalContext := EvalContext{}
+		_, err := ExpressionEval(exp, EvalContext)
+		if err == nil {
+			t.Error("should return type error")
+			return
+		}
+	})
+
+	t.Run("positive difference", func(t *testing.T) {
+		exp := studyTypes.Expression{Name: "timestampDiff", Data: []studyTypes.ExpressionArg{
+			{DType: "num", Num: 200},
+			{DType: "num", Num: 150},
+		}}
+		EvalContext := EvalContext{}
+		ret, err := ExpressionEval(exp, EvalContext)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		diff := ret.(float64)
+		if diff != 50 {
+			t.Errorf("unexpected value: %f, expected %f", diff, float64(50))
+		}
+	})
+
+	t.Run("negative difference", func(t *testing.T) {
+		exp := studyTypes.Expression{Name: "timestampDiff", Data: []studyTypes.ExpressionArg{
+			{DType: "num", Num: 150},
+			{DType: "num", Num: 200},
+		}}
+		EvalContext := EvalContext{}
+		ret, err := ExpressionEval(exp, EvalContext)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		diff := ret.(float64)
+		if diff != -50 {
+			t.Errorf("unexpected value: %f, expected %f", diff, float64(-50))
+		}
+	})
+
+	t.Run("equal timestamps", func(t *testing.T) {
+		exp := studyTypes.Expression{Name: "timestampDiff", Data: []studyTypes.ExpressionArg{
+			{DType: "num", Num: 100},
+			{DType: "num", Num: 100},
+		}}
+		EvalContext := EvalContext{}
+		ret, err := ExpressionEval(exp, EvalContext)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		diff := ret.(float64)
+		if diff != 0 {
+			t.Errorf("unexpected value: %f, expected %f", diff, float64(0))
+		}
+	})
+
+	t.Run("with expressions as arguments", func(t *testing.T) {
+		exp := studyTypes.Expression{Name: "timestampDiff", Data: []studyTypes.ExpressionArg{
+			{DType: "exp", Exp: &studyTypes.Expression{
+				Name: "timestampWithOffset",
+				Data: []studyTypes.ExpressionArg{
+					{DType: "num", Num: 0},
+					{DType: "num", Num: 200},
+				},
+			}},
+			{DType: "exp", Exp: &studyTypes.Expression{
+				Name: "timestampWithOffset",
+				Data: []studyTypes.ExpressionArg{
+					{DType: "num", Num: 0},
+					{DType: "num", Num: 150},
+				},
+			}},
+		}}
+		EvalContext := EvalContext{}
+		ret, err := ExpressionEval(exp, EvalContext)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		diff := ret.(float64)
+		if diff != 50 {
+			t.Errorf("unexpected value: %f, expected %f", diff, float64(50))
+		}
+	})
+
+	// Tests the composed condition:
+	//
+	//	gte(
+	//	  timestampDiff(currentTs, getTsForStartOfISOWeek(refTs)),
+	//	  259200
+	//	)
+	//
+	// which evaluates to true once at least 72 hours (259200 seconds) have
+	// passed since the start (Monday 00:00:00) of the ISO week containing refTs.
+	// Both timestamps are fixed values.
+	t.Run("used in gte condition for at least 72 hours since week start", func(t *testing.T) {
+		// Wednesday, 2023-09-13 - any day within the reference ISO week.
+		refTs := time.Date(2023, 9, 13, 12, 0, 0, 0, time.Local).Unix()
+		// Start of that ISO week: Monday, 2023-09-11, 00:00:00.
+		startOfWeek := time.Date(2023, 9, 11, 0, 0, 0, 0, time.Local).Unix()
+
+		buildExp := func(currentTs int64) studyTypes.Expression {
+			return studyTypes.Expression{
+				Name: "gte",
+				Data: []studyTypes.ExpressionArg{
+					{DType: "exp", Exp: &studyTypes.Expression{
+						Name: "timestampDiff",
+						Data: []studyTypes.ExpressionArg{
+							{DType: "num", Num: float64(currentTs)},
+							{DType: "exp", Exp: &studyTypes.Expression{
+								Name: "getTsForStartOfISOWeek",
+								Data: []studyTypes.ExpressionArg{
+									{DType: "num", Num: float64(refTs)},
+								},
+							}},
+						},
+					}},
+					{DType: "num", Num: 259200},
+				},
+			}
+		}
+
+		run := func(t *testing.T, currentTs int64) bool {
+			EvalContext := EvalContext{}
+			ret, err := ExpressionEval(buildExp(currentTs), EvalContext)
+			if err != nil {
+				t.Fatalf("unexpected error: %s", err.Error())
+			}
+			val, ok := ret.(bool)
+			if !ok {
+				t.Fatalf("unexpected return type: %T", ret)
+			}
+			return val
+		}
+
+		t.Run("less than 72 hours after week start", func(t *testing.T) {
+			currentTs := startOfWeek + int64((71*time.Hour + 59*time.Minute).Seconds())
+			if run(t, currentTs) {
+				t.Error("expected condition to be false before 72 hours have passed")
+			}
+		})
+
+		t.Run("well more than 72 hours after week start", func(t *testing.T) {
+			currentTs := startOfWeek + int64((100 * time.Hour).Seconds())
+			if !run(t, currentTs) {
+				t.Error("expected condition to be true when more than 72 hours have passed")
+			}
+		})
+	})
+}
+
 func TestEvalHasMessageTypeAssigned(t *testing.T) {
 	t.Run("participant has no messages", func(t *testing.T) {
 		exp := studyTypes.Expression{Name: "hasMessageTypeAssigned", Data: []studyTypes.ExpressionArg{
