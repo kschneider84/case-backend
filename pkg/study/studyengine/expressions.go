@@ -161,12 +161,16 @@ func ExpressionEval(expression studyTypes.Expression, evalCtx EvalContext) (val 
 	// Other
 	case "timestampWithOffset":
 		val, err = evalCtx.timestampWithOffset(expression)
+	case "timestampDiff":
+		val, err = evalCtx.timestampDiff(expression)
 	case "getTsForNextStartOfMonth":
 		val, err = evalCtx.getTsForNextStartOfMonth(expression)
 	case "getISOWeekForTs":
 		val, err = evalCtx.getISOWeekForTs(expression)
 	case "getTsForNextISOWeek":
 		val, err = evalCtx.getTsForNextISOWeek(expression)
+	case "getTsForStartOfISOWeek":
+		val, err = evalCtx.getTsForStartOfISOWeek(expression)
 	case "dateToStr":
 		val, err = evalCtx.dateToStr(expression)
 	case "parseValueAsNum":
@@ -1703,6 +1707,33 @@ func (ctx EvalContext) timestampWithOffset(exp studyTypes.Expression) (t float64
 	return
 }
 
+func (ctx EvalContext) timestampDiff(exp studyTypes.Expression) (t float64, err error) {
+	if len(exp.Data) != 2 {
+		return t, errors.New("should have exactly two arguments")
+	}
+
+	arg1, err1 := ctx.ExpressionArgResolver(exp.Data[0])
+	if err1 != nil {
+		return t, err1
+	}
+	if reflect.TypeOf(arg1).Kind() != reflect.Float64 {
+		return t, errors.New("argument 1 should be resolved as type number (float64)")
+	}
+	laterTimestamp := arg1.(float64)
+
+	arg2, err2 := ctx.ExpressionArgResolver(exp.Data[1])
+	if err2 != nil {
+		return t, err2
+	}
+	if reflect.TypeOf(arg2).Kind() != reflect.Float64 {
+		return t, errors.New("argument 2 should be resolved as type number (float64)")
+	}
+	earlierTimestamp := arg2.(float64)
+
+	t = laterTimestamp - earlierTimestamp
+	return
+}
+
 func (ctx EvalContext) getTsForNextStartOfMonth(exp studyTypes.Expression) (t float64, err error) {
 	if len(exp.Data) != 1 && len(exp.Data) != 2 {
 		return t, errors.New("should have one or two arguments")
@@ -1833,6 +1864,37 @@ func (ctx EvalContext) getTsForNextISOWeek(exp studyTypes.Expression) (t float64
 	}
 
 	startOfWeek := referenceTime.AddDate(0, 0, -int(referenceTime.Weekday())+1)
+	t = float64(startOfWeek.Unix())
+	return
+}
+
+func (ctx EvalContext) getTsForStartOfISOWeek(exp studyTypes.Expression) (t float64, err error) {
+	if len(exp.Data) != 0 && len(exp.Data) != 1 {
+		return t, errors.New("should have zero or one argument")
+	}
+
+	referenceTime := Now()
+	if len(exp.Data) == 1 {
+		arg1, err1 := ctx.ExpressionArgResolver(exp.Data[0])
+		if err1 != nil {
+			return t, err1
+		}
+		if reflect.TypeOf(arg1).Kind() != reflect.Float64 {
+			return t, errors.New("argument 1 should be resolved as type number (float64)")
+		}
+
+		referenceTime = time.Unix(int64(arg1.(float64)), 0)
+	}
+
+	weekday := int(referenceTime.Weekday())
+	if weekday == 0 {
+		// time.Sunday is 0, but for ISO weeks Sunday is the 7th day
+		weekday = 7
+	}
+
+	startOfWeek := referenceTime.AddDate(0, 0, -weekday+1)
+	startOfWeek = time.Date(startOfWeek.Year(), startOfWeek.Month(), startOfWeek.Day(), 0, 0, 0, 0, startOfWeek.Location())
+
 	t = float64(startOfWeek.Unix())
 	return
 }
