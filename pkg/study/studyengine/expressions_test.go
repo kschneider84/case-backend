@@ -2,6 +2,8 @@ package studyengine
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -3208,6 +3210,35 @@ func TestEvalGetTsForNextISOWeek(t *testing.T) {
 			t.Errorf("unexpected value: %d-%d, expected %d-%d", y, w, y_i, w_i)
 		}
 	})
+
+	t.Run("result is start of week (Monday midnight), including when reference is a Sunday", func(t *testing.T) {
+		// Reference is a Sunday (2023-09-10). Before the fix, Weekday() == 0 for Sunday
+		// caused the week-start calculation to jump forward instead of back to Monday.
+		refTs := time.Date(2023, 9, 10, 15, 30, 0, 0, time.Local)
+		if refTs.Weekday() != time.Sunday {
+			t.Fatalf("test setup error: reference date is not a Sunday")
+		}
+
+		exp := studyTypes.Expression{Name: "getTsForNextISOWeek", Data: []studyTypes.ExpressionArg{
+			{DType: "num", Num: 1},
+			{DType: "num", Num: float64(refTs.Unix())},
+		}}
+		EvalContext := EvalContext{}
+		ret, err := ExpressionEval(exp, EvalContext)
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		ts := ret.(float64)
+		tsD := time.Unix(int64(ts), 0)
+
+		if tsD.Weekday() != time.Monday {
+			t.Errorf("unexpected weekday: %s, expected Monday", tsD.Weekday())
+		}
+		if tsD.Hour() != 0 || tsD.Minute() != 0 || tsD.Second() != 0 {
+			t.Errorf("unexpected time of day: %02d:%02d:%02d, expected midnight", tsD.Hour(), tsD.Minute(), tsD.Second())
+		}
+	})
 }
 
 func TestEvalGetTsForStartOfISOWeek(t *testing.T) {
@@ -3976,5 +4007,103 @@ func TestNow(t *testing.T) {
 			t.Errorf("Unexpected timestamp got %d, expecting %d", resTS, expTS)
 		}
 		Now = time.Now // resetting to current time
+	})
+}
+
+// TestEvalNilArgumentHandling ensures that a nil-resolved argument (e.g., from an
+// externalEventEval response missing the "value" key) produces a graceful error
+// instead of a panic in reflect.TypeOf(arg).Kind()-based type checks.
+func TestEvalNilArgumentHandling(t *testing.T) {
+	// newNilArg builds an ExpressionArg that resolves to nil, by wiring an
+	// "externalEventEval" call to a test server whose response omits the "value" key.
+	newNilArg := func(t *testing.T) studyTypes.ExpressionArg {
+		t.Helper()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"unrelated": "field"}`))
+		}))
+		t.Cleanup(server.Close)
+
+		previousStudyEngine := CurrentStudyEngine
+		CurrentStudyEngine = &StudyEngine{
+			externalServices: []ExternalService{
+				{Name: "nilService", URL: server.URL},
+			},
+		}
+		t.Cleanup(func() { CurrentStudyEngine = previousStudyEngine })
+
+		return studyTypes.ExpressionArg{
+			DType: "exp",
+			Exp: &studyTypes.Expression{
+				Name: "externalEventEval",
+				Data: []studyTypes.ExpressionArg{
+					{DType: "str", Str: "nilService"},
+				},
+			},
+		}
+	}
+
+	expectGracefulError := func(t *testing.T, exp studyTypes.Expression) {
+		t.Helper()
+		_, err := ExpressionEval(exp, EvalContext{})
+		if err == nil {
+			t.Error("expected a graceful error instead of a panic when the argument resolves to nil")
+		}
+	}
+
+	t.Run("neg with nil argument", func(t *testing.T) {
+		expectGracefulError(t, studyTypes.Expression{Name: "neg", Data: []studyTypes.ExpressionArg{
+			newNilArg(t),
+		}})
+	})
+
+	t.Run("timestampWithOffset with nil argument", func(t *testing.T) {
+		expectGracefulError(t, studyTypes.Expression{Name: "timestampWithOffset", Data: []studyTypes.ExpressionArg{
+			newNilArg(t),
+		}})
+	})
+
+	t.Run("timestampDiff with nil argument", func(t *testing.T) {
+		expectGracefulError(t, studyTypes.Expression{Name: "timestampDiff", Data: []studyTypes.ExpressionArg{
+			newNilArg(t),
+			{DType: "num", Num: 100},
+		}})
+	})
+
+	t.Run("getISOWeekForTs with nil argument", func(t *testing.T) {
+		expectGracefulError(t, studyTypes.Expression{Name: "getISOWeekForTs", Data: []studyTypes.ExpressionArg{
+			newNilArg(t),
+		}})
+	})
+
+	t.Run("parseValueAsNum with nil argument", func(t *testing.T) {
+		expectGracefulError(t, studyTypes.Expression{Name: "parseValueAsNum", Data: []studyTypes.ExpressionArg{
+			newNilArg(t),
+		}})
+	})
+
+	t.Run("generateRandomNumber with nil argument", func(t *testing.T) {
+		expectGracefulError(t, studyTypes.Expression{Name: "generateRandomNumber", Data: []studyTypes.ExpressionArg{
+			newNilArg(t),
+			{DType: "num", Num: 10},
+		}})
+	})
+
+	t.Run("sum with nil argument does not panic", func(t *testing.T) {
+		// sum tolerates unresolved types via a type switch default branch, so it should
+		// neither panic nor return an error - it simply ignores the nil argument.
+		exp := studyTypes.Expression{Name: "sum", Data: []studyTypes.ExpressionArg{
+			newNilArg(t),
+			{DType: "num", Num: 1},
+		}}
+		ret, err := ExpressionEval(exp, EvalContext{})
+		if err != nil {
+			t.Errorf("unexpected error: %s", err.Error())
+			return
+		}
+		if ret.(float64) != 1 {
+			t.Errorf("unexpected value: %v", ret)
+		}
 	})
 }
