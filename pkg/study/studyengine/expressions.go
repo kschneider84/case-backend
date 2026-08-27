@@ -1867,7 +1867,15 @@ func (ctx EvalContext) getTsForNextISOWeek(exp studyTypes.Expression) (t float64
 		referenceTime = referenceTime.AddDate(0, 0, 1)
 	}
 
-	startOfWeek := referenceTime.AddDate(0, 0, -int(referenceTime.Weekday())+1)
+	weekday := int(referenceTime.Weekday())
+	if weekday == 0 {
+		// time.Sunday is 0, but for ISO weeks Sunday is the 7th day
+		weekday = 7
+	}
+
+	startOfWeek := referenceTime.AddDate(0, 0, -weekday+1)
+	startOfWeek = time.Date(startOfWeek.Year(), startOfWeek.Month(), startOfWeek.Day(), 0, 0, 0, 0, startOfWeek.Location())
+
 	t = float64(startOfWeek.Unix())
 	return
 }
