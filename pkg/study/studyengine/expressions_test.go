@@ -3212,15 +3212,16 @@ func TestEvalGetTsForNextISOWeek(t *testing.T) {
 	})
 
 	t.Run("result is start of week (Monday midnight), including when reference is a Sunday", func(t *testing.T) {
-		// Reference is a Sunday (2023-09-10). Before the fix, Weekday() == 0 for Sunday
-		// caused the week-start calculation to jump forward instead of back to Monday.
+		// refTs is a Sunday already in the requested ISO week, so the search loop
+		// exits immediately, exercising the weekday == 0 fix on the original date.
 		refTs := time.Date(2023, 9, 10, 15, 30, 0, 0, time.Local)
 		if refTs.Weekday() != time.Sunday {
 			t.Fatalf("test setup error: reference date is not a Sunday")
 		}
+		_, isoWeek := refTs.ISOWeek()
 
 		exp := studyTypes.Expression{Name: "getTsForNextISOWeek", Data: []studyTypes.ExpressionArg{
-			{DType: "num", Num: 1},
+			{DType: "num", Num: float64(isoWeek)},
 			{DType: "num", Num: float64(refTs.Unix())},
 		}}
 		EvalContext := EvalContext{}
@@ -3232,11 +3233,9 @@ func TestEvalGetTsForNextISOWeek(t *testing.T) {
 		ts := ret.(float64)
 		tsD := time.Unix(int64(ts), 0)
 
-		if tsD.Weekday() != time.Monday {
-			t.Errorf("unexpected weekday: %s, expected Monday", tsD.Weekday())
-		}
-		if tsD.Hour() != 0 || tsD.Minute() != 0 || tsD.Second() != 0 {
-			t.Errorf("unexpected time of day: %02d:%02d:%02d, expected midnight", tsD.Hour(), tsD.Minute(), tsD.Second())
+		expectedDate := time.Date(2023, 9, 4, 0, 0, 0, 0, time.Local) // Monday of the same ISO week
+		if !tsD.Equal(expectedDate) {
+			t.Errorf("unexpected date: %s, expected %s", tsD, expectedDate)
 		}
 	})
 }
