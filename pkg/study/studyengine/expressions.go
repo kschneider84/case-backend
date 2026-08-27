@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -1652,7 +1651,7 @@ func (ctx EvalContext) sum(exp studyTypes.Expression) (t float64, err error) {
 		case float64:
 			t = t + v
 		default:
-			slog.Error("unexpected type during expression eval", slog.Int("index", idx), slog.String("expression", exp.Name), slog.String("type", reflect.TypeOf(arg).String()))
+			slog.Error("unexpected type during expression eval", slog.Int("index", idx), slog.String("expression", exp.Name), slog.String("type", fmt.Sprintf("%T", arg)))
 		}
 
 	}
@@ -1668,10 +1667,10 @@ func (ctx EvalContext) neg(exp studyTypes.Expression) (val float64, err error) {
 	if err != nil {
 		return val, err
 	}
-	if reflect.TypeOf(arg).Kind() != reflect.Float64 {
+	v, ok := arg.(float64)
+	if !ok {
 		return val, errors.New("argument 1 should be resolved as type number (float64)")
 	}
-	v := arg.(float64)
 	val = -1 * v
 	return
 }
@@ -1685,10 +1684,11 @@ func (ctx EvalContext) timestampWithOffset(exp studyTypes.Expression) (t float64
 	if err1 != nil {
 		return t, err1
 	}
-	if reflect.TypeOf(arg1).Kind() != reflect.Float64 {
+	arg1Float, ok := arg1.(float64)
+	if !ok {
 		return t, errors.New("argument 1 should be resolved as type number (float64)")
 	}
-	delta := int64(arg1.(float64))
+	delta := int64(arg1Float)
 
 	referenceTime := Now().Unix()
 	if len(exp.Data) == 2 {
@@ -1696,11 +1696,12 @@ func (ctx EvalContext) timestampWithOffset(exp studyTypes.Expression) (t float64
 		if err2 != nil {
 			return t, err2
 		}
-		if reflect.TypeOf(arg2).Kind() != reflect.Float64 {
+		arg2Float, ok := arg2.(float64)
+		if !ok {
 			return t, errors.New("argument 2 should be resolved as type number (float64)")
 		}
 
-		referenceTime = int64(arg2.(float64))
+		referenceTime = int64(arg2Float)
 	}
 
 	t = float64(referenceTime + delta)
@@ -1716,19 +1717,19 @@ func (ctx EvalContext) timestampDiff(exp studyTypes.Expression) (t float64, err 
 	if err1 != nil {
 		return t, err1
 	}
-	if reflect.TypeOf(arg1).Kind() != reflect.Float64 {
+	laterTimestamp, ok := arg1.(float64)
+	if !ok {
 		return t, errors.New("argument 1 should be resolved as type number (float64)")
 	}
-	laterTimestamp := arg1.(float64)
 
 	arg2, err2 := ctx.ExpressionArgResolver(exp.Data[1])
 	if err2 != nil {
 		return t, err2
 	}
-	if reflect.TypeOf(arg2).Kind() != reflect.Float64 {
+	earlierTimestamp, ok := arg2.(float64)
+	if !ok {
 		return t, errors.New("argument 2 should be resolved as type number (float64)")
 	}
-	earlierTimestamp := arg2.(float64)
 
 	t = laterTimestamp - earlierTimestamp
 	return
@@ -1793,11 +1794,12 @@ func (ctx EvalContext) getTsForNextStartOfMonth(exp studyTypes.Expression) (t fl
 		if err2 != nil {
 			return t, err2
 		}
-		if reflect.TypeOf(arg2).Kind() != reflect.Float64 {
+		arg2Float, ok := arg2.(float64)
+		if !ok {
 			return t, errors.New("argument 2 should be resolved as type number (float64)")
 		}
 
-		referenceTime = time.Unix(int64(arg2.(float64)), 0)
+		referenceTime = time.Unix(int64(arg2Float), 0)
 	}
 
 	// Get the first day of the next occurrence of the specified month
@@ -1832,11 +1834,12 @@ func (ctx EvalContext) getTsForNextISOWeek(exp studyTypes.Expression) (t float64
 	if err1 != nil {
 		return t, err1
 	}
-	if reflect.TypeOf(arg1).Kind() != reflect.Float64 {
+	arg1Float, ok := arg1.(float64)
+	if !ok {
 		return t, errors.New("argument 1 should be resolved as type number (float64)")
 	}
 
-	ISOWeek := int64(arg1.(float64))
+	ISOWeek := int64(arg1Float)
 
 	if ISOWeek < 1 || ISOWeek > 53 {
 		return t, errors.New("argument 1 should be between 1 and 53")
@@ -1848,11 +1851,12 @@ func (ctx EvalContext) getTsForNextISOWeek(exp studyTypes.Expression) (t float64
 		if err2 != nil {
 			return t, err2
 		}
-		if reflect.TypeOf(arg2).Kind() != reflect.Float64 {
+		arg2Float, ok := arg2.(float64)
+		if !ok {
 			return t, errors.New("argument 2 should be resolved as type number (float64)")
 		}
 
-		referenceTime = time.Unix(int64(arg2.(float64)), 0)
+		referenceTime = time.Unix(int64(arg2Float), 0)
 	}
 
 	for {
@@ -1879,11 +1883,12 @@ func (ctx EvalContext) getTsForStartOfISOWeek(exp studyTypes.Expression) (t floa
 		if err1 != nil {
 			return t, err1
 		}
-		if reflect.TypeOf(arg1).Kind() != reflect.Float64 {
+		arg1Float, ok := arg1.(float64)
+		if !ok {
 			return t, errors.New("argument 1 should be resolved as type number (float64)")
 		}
 
-		referenceTime = time.Unix(int64(arg1.(float64)), 0)
+		referenceTime = time.Unix(int64(arg1Float), 0)
 	}
 
 	weekday := int(referenceTime.Weekday())
@@ -1908,11 +1913,12 @@ func (ctx EvalContext) getISOWeekForTs(exp studyTypes.Expression) (t float64, er
 	if err1 != nil {
 		return t, err1
 	}
-	if reflect.TypeOf(arg1).Kind() != reflect.Float64 {
+	arg1Float, ok := arg1.(float64)
+	if !ok {
 		return t, errors.New("argument 1 should be resolved as type number (float64)")
 	}
 
-	ts := int64(arg1.(float64))
+	ts := int64(arg1Float)
 	_, iw := time.Unix(ts, 0).ISOWeek()
 	t = float64(iw)
 	return
@@ -1967,15 +1973,16 @@ func (ctx EvalContext) parseValueAsNum(exp studyTypes.Expression) (val float64, 
 		return val, err
 	}
 
-	if reflect.TypeOf(arg1).Kind() == reflect.Float64 {
-		return arg1.(float64), nil
+	if v, ok := arg1.(float64); ok {
+		return v, nil
 	}
 
-	if reflect.TypeOf(arg1).Kind() != reflect.String {
+	strVal, ok := arg1.(string)
+	if !ok {
 		return val, errors.New("argument 1 should be resolved as type string")
 	}
 
-	val, err = strconv.ParseFloat(arg1.(string), 64)
+	val, err = strconv.ParseFloat(strVal, 64)
 
 	return
 }
@@ -1989,19 +1996,21 @@ func (ctx EvalContext) generateRandomNumber(exp studyTypes.Expression) (val floa
 	if err != nil {
 		return val, err
 	}
-	if reflect.TypeOf(arg1).Kind() != reflect.Float64 {
+	arg1Float, ok := arg1.(float64)
+	if !ok {
 		return val, errors.New("argument 1 should be resolved as type number (float64)")
 	}
-	min := int(arg1.(float64))
+	min := int(arg1Float)
 
 	arg2, err := ctx.ExpressionArgResolver(exp.Data[1])
 	if err != nil {
 		return val, err
 	}
-	if reflect.TypeOf(arg2).Kind() != reflect.Float64 {
+	arg2Float, ok := arg2.(float64)
+	if !ok {
 		return val, errors.New("argument 2 should be resolved as type number (float64)")
 	}
-	max := int(arg2.(float64))
+	max := int(arg2Float)
 
 	rand.Seed(time.Now().UnixNano())
 	randomVal := rand.Intn(max-min+1) + min
