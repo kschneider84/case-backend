@@ -9,7 +9,7 @@ import (
 
 	sd "github.com/case-framework/case-backend/pkg/study/exporter/survey-definition"
 	studytypes "github.com/case-framework/case-backend/pkg/study/types"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 func TestResponseExporterAccountTracking(t *testing.T) {
@@ -19,7 +19,7 @@ func TestResponseExporterAccountTracking(t *testing.T) {
 		MainProfile: &mainProfile,
 	}
 	response := studytypes.SurveyResponse{
-		ID:          primitive.NewObjectID(),
+		ID:          bson.NewObjectID(),
 		VersionID:   "v1",
 		ArrivedAt:   100,
 		SubmittedAt: 100,
