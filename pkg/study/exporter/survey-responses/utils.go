@@ -19,6 +19,12 @@ func valueToStr(resultVal interface{}) string {
 	switch colValue := resultVal.(type) {
 	case string:
 		str = colValue
+	case bool:
+		str = fmt.Sprintf("%t", colValue)
+	case *bool:
+		if colValue != nil {
+			str = fmt.Sprintf("%t", *colValue)
+		}
 	case int:
 		str = fmt.Sprintf("%d", colValue)
 	case int32:

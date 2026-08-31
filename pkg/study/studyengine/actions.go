@@ -773,7 +773,7 @@ func newReport(reportKey string, participantID string) studyTypes.Report {
 	return studyTypes.Report{
 		Key:           reportKey,
 		ParticipantID: participantID,
-		Timestamp:     Now().Truncate(time.Minute).Unix(),
+		Timestamp:     Now().Unix(),
 	}
 }
 

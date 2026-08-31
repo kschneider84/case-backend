@@ -72,6 +72,7 @@ func (re *ResponseExporter) init() error {
 
 func (re *ResponseExporter) WriteResponse(
 	rawResp *studytypes.SurveyResponse,
+	trackingInfo ...AccountTrackingInfo,
 ) error {
 
 	if re.parser == nil {
@@ -81,7 +82,7 @@ func (re *ResponseExporter) WriteResponse(
 		return fmt.Errorf("writer not initialized")
 	}
 
-	parsedResp, err := re.parser.ParseResponse(rawResp)
+	parsedResp, err := re.parser.ParseResponse(rawResp, trackingInfo...)
 	if err != nil {
 		return err
 	}

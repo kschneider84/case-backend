@@ -302,6 +302,35 @@ func (dbService *StudyDBService) UpdateParticipantIDonResponses(instanceID strin
 	return res.ModifiedCount, err
 }
 
+// UpdateResponseSessionContext reassigns or removes the session label on all responses for a participant
+// that match oldSession. If newSession is empty, the "session" key will be set to "" in the context map.
+func (dbService *StudyDBService) UpdateResponseSessionContext(instanceID string, studyKey string, participantID string, oldSession string, newSession string) (count int64, err error) {
+	ctx, cancel := dbService.getContext()
+	defer cancel()
+
+	if oldSession == "" {
+		return 0, errors.New("oldSession must not be empty")
+	}
+
+	filter := bson.M{
+		"participantID":    participantID,
+		"context.session":  oldSession,
+	}
+
+	var update bson.M
+	if newSession == "" {
+		update = bson.M{"$set": bson.M{"context.session": ""}}
+	} else {
+		update = bson.M{"$set": bson.M{"context.session": newSession}}
+	}
+
+	res, err := dbService.collectionResponses(instanceID, studyKey).UpdateMany(ctx, filter, update)
+	if err != nil {
+		return 0, err
+	}
+	return res.ModifiedCount, nil
+}
+
 // delete responses by query
 func (dbService *StudyDBService) DeleteResponses(instanceID string, studyKey string, filter bson.M) error {
 	ctx, cancel := dbService.getContext()

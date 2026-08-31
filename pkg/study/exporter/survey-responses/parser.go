@@ -9,12 +9,15 @@ import (
 	studytypes "github.com/case-framework/case-backend/pkg/study/types"
 )
 
-var (
-	defaultCtxColNames = []string{
-		"language",
-		"engineVersion",
-		"session",
-	}
+var defaultCtxColNames = []string{
+	"language",
+	"engineVersion",
+	"session",
+}
+
+const (
+	accountIDColumn   = "accountID"
+	mainProfileColumn = "mainProfile"
 )
 
 type ResponseParser struct {
@@ -24,6 +27,7 @@ type ResponseParser struct {
 	columns           ColumnNames
 	includeMeta       *IncludeMeta
 	questionOptionSep string
+	accountTracking   bool
 }
 
 func NewResponseParser(
@@ -59,10 +63,13 @@ func (rp *ResponseParser) initColumnNames(extraContextColumns *[]string) error {
 		"arrived",
 	}
 
-	ctxCols := defaultCtxColNames
+	ctxCols := append([]string{}, defaultCtxColNames...)
 	if extraContextColumns != nil {
 		ctxCols = append(ctxCols, *extraContextColumns...)
 	}
+	ctxCols = slices.DeleteFunc(ctxCols, func(column string) bool {
+		return column == accountIDColumn || column == mainProfileColumn
+	})
 
 	if rp.removeRootKey {
 		for versionInd, sv := range rp.surveyVersions {
@@ -87,8 +94,21 @@ func (rp *ResponseParser) initColumnNames(extraContextColumns *[]string) error {
 	return nil
 }
 
+// EnableAccountTracking adds the account tracking fields to all output
+// formats. The account ID value is the pseudonymized value from the
+// participant state.
+func (rp *ResponseParser) EnableAccountTracking() {
+	if rp.accountTracking {
+		return
+	}
+
+	rp.accountTracking = true
+	rp.columns.FixedColumns = append(rp.columns.FixedColumns, accountIDColumn, mainProfileColumn)
+}
+
 func (rp *ResponseParser) ParseResponse(
 	rawResp *studytypes.SurveyResponse,
+	trackingInfo ...AccountTrackingInfo,
 ) (ParsedResponse, error) {
 	parsedResponse := ParsedResponse{
 		ID:            rawResp.ID.Hex(),
@@ -105,6 +125,10 @@ func (rp *ResponseParser) ParseResponse(
 			Responded:   map[string][]int64{},
 			Position:    map[string]int32{},
 		},
+	}
+	if len(trackingInfo) > 0 {
+		parsedResponse.AccountID = trackingInfo[0].AccountID
+		parsedResponse.MainProfile = trackingInfo[0].MainProfile
 	}
 
 	currentVersion, err := findSurveyVersion(rawResp.VersionID, rawResp.ArrivedAt, rp.surveyVersions)
@@ -258,7 +282,7 @@ func (rp *ResponseParser) ResponseToFlatObj(
 func (rp ResponseParser) initWithFixedColumnsWithValues(
 	parsedResponse *ParsedResponse,
 ) map[string]interface{} {
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		rp.columns.FixedColumns[0]: parsedResponse.ID,
 		rp.columns.FixedColumns[1]: parsedResponse.ParticipantID,
 		rp.columns.FixedColumns[2]: parsedResponse.Version,
@@ -266,6 +290,15 @@ func (rp ResponseParser) initWithFixedColumnsWithValues(
 		rp.columns.FixedColumns[4]: parsedResponse.SubmittedAt,
 		rp.columns.FixedColumns[5]: parsedResponse.ArrivedAt,
 	}
+	if rp.accountTracking {
+		result[accountIDColumn] = parsedResponse.AccountID
+		if parsedResponse.MainProfile != nil {
+			result[mainProfileColumn] = *parsedResponse.MainProfile
+		} else {
+			result[mainProfileColumn] = ""
+		}
+	}
+	return result
 }
 
 func (rp ResponseParser) addContextColumnsWithValues(

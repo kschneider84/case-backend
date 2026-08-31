@@ -928,7 +928,7 @@ func (h *HttpEndpoints) addStudyDataExplorerEndpoints(rg *gin.RouterGroup) {
 			h.getStudyResponses,
 		))
 
-		responsesGroup.GET("/:responseId", h.useAuthorisedHandler(
+		responsesGroup.GET("/:responseID", h.useAuthorisedHandler(
 			RequiredPermission{
 				ResourceType:        pc.RESOURCE_TYPE_STUDY,
 				ResourceKeys:        []string{pc.RESOURCE_KEY_STUDY_ALL},
@@ -951,7 +951,7 @@ func (h *HttpEndpoints) addStudyDataExplorerEndpoints(rg *gin.RouterGroup) {
 			h.deleteStudyResponses,
 		))
 
-		responsesGroup.DELETE("/:responseId", h.useAuthorisedHandler(
+		responsesGroup.DELETE("/:responseID", h.useAuthorisedHandler(
 			RequiredPermission{
 				ResourceType:        pc.RESOURCE_TYPE_STUDY,
 				ResourceKeys:        []string{pc.RESOURCE_KEY_STUDY_ALL},
@@ -2861,6 +2861,13 @@ func (h *HttpEndpoints) generateResponsesExport(c *gin.Context) {
 		return
 	}
 
+	study, err := h.studyDBConn.GetStudy(token.InstanceID, studyKey)
+	if err != nil {
+		slog.Error("failed to get study", slog.String("error", err.Error()))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get study"})
+		return
+	}
+
 	slog.Info("generating responses export", slog.String("instanceID", token.InstanceID), slog.String("userID", token.Subject), slog.String("studyKey", studyKey), slog.String("surveyKey", query.SurveyKey))
 
 	count, err := h.studyDBConn.GetResponsesCount(token.InstanceID, studyKey, query.PaginationInfos.Filter)
@@ -2869,7 +2876,6 @@ func (h *HttpEndpoints) generateResponsesExport(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get responses count"})
 		return
 	}
-
 	if count == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"error": "no responses to export",
@@ -2906,6 +2912,9 @@ func (h *HttpEndpoints) generateResponsesExport(c *gin.Context) {
 		slog.Error("failed to create response parser", slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create response parser"})
 		return
+	}
+	if study.Configs.TrackAccount {
+		respParser.EnableAccountTracking()
 	}
 
 	fileType := studyTypes.TASK_FILE_TYPE_CSV
@@ -2967,6 +2976,7 @@ func (h *HttpEndpoints) generateResponsesExport(c *gin.Context) {
 
 		ctx := context.Background()
 		counter := 0
+		accountInfoCache := map[string]surveyresponses.AccountTrackingInfo{}
 
 		err = h.studyDBConn.FindAndExecuteOnResponses(
 			ctx,
@@ -2979,7 +2989,17 @@ func (h *HttpEndpoints) generateResponsesExport(c *gin.Context) {
 				task := args[0].(*studyTypes.Task)
 				exporter := args[1].(*surveyresponses.ResponseExporter)
 
-				err := exporter.WriteResponse(&r)
+				trackingInfo := surveyresponses.AccountTrackingInfo{}
+				if study.Configs.TrackAccount {
+					var ok bool
+					trackingInfo, ok = accountInfoCache[r.ParticipantID]
+					if !ok {
+						trackingInfo = h.getResponseAccountTrackingInfo(instanceID, studyKey, r.ParticipantID)
+						accountInfoCache[r.ParticipantID] = trackingInfo
+					}
+				}
+
+				err := exporter.WriteResponse(&r, trackingInfo)
 				if err != nil {
 					return err
 				}
@@ -3952,6 +3972,15 @@ func (h *HttpEndpoints) getDailyExport(c *gin.Context) {
 	c.File(resultFilePath)
 }
 
+func (h *HttpEndpoints) getResponseAccountTrackingInfo(instanceID, studyKey, participantID string) surveyresponses.AccountTrackingInfo {
+	pState, err := h.studyDBConn.GetParticipantByID(instanceID, studyKey, participantID)
+	if err != nil {
+		slog.Warn("failed to get participant account tracking info", slog.String("error", err.Error()), slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("participantID", participantID))
+		return surveyresponses.AccountTrackingInfo{}
+	}
+	return surveyresponses.AccountTrackingInfoFromParticipant(pState)
+}
+
 func (h *HttpEndpoints) getStudyResponses(c *gin.Context) {
 	token := c.MustGet("validatedToken").(*jwthandling.ManagementUserClaims)
 
@@ -3968,6 +3997,13 @@ func (h *HttpEndpoints) getStudyResponses(c *gin.Context) {
 	if surveyKey == "" {
 		slog.Error("surveyKey is required", slog.String("instanceID", token.InstanceID), slog.String("userID", token.Subject), slog.String("studyKey", studyKey))
 		c.JSON(http.StatusBadRequest, gin.H{"error": "surveyKey is required"})
+		return
+	}
+
+	study, err := h.studyDBConn.GetStudy(token.InstanceID, studyKey)
+	if err != nil {
+		slog.Error("failed to get study", slog.String("error", err.Error()))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get study"})
 		return
 	}
 
@@ -4017,11 +4053,24 @@ func (h *HttpEndpoints) getStudyResponses(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create response parser"})
 		return
 	}
+	if study.Configs.TrackAccount {
+		respParser.EnableAccountTracking()
+	}
 
 	responses := make([]map[string]interface{}, len(rawResponses))
+	accountInfoCache := map[string]surveyresponses.AccountTrackingInfo{}
 
 	for i, rawResp := range rawResponses {
-		resp, err := respParser.ParseResponse(&rawResp)
+		trackingInfo := surveyresponses.AccountTrackingInfo{}
+		if study.Configs.TrackAccount {
+			var ok bool
+			trackingInfo, ok = accountInfoCache[rawResp.ParticipantID]
+			if !ok {
+				trackingInfo = h.getResponseAccountTrackingInfo(token.InstanceID, studyKey, rawResp.ParticipantID)
+				accountInfoCache[rawResp.ParticipantID] = trackingInfo
+			}
+		}
+		resp, err := respParser.ParseResponse(&rawResp, trackingInfo)
 		if err != nil {
 			slog.Error("failed to parse response", slog.String("error", err.Error()))
 			continue
@@ -4062,6 +4111,13 @@ func (h *HttpEndpoints) getStudyResponseById(c *gin.Context) {
 		return
 	}
 
+	study, err := h.studyDBConn.GetStudy(token.InstanceID, studyKey)
+	if err != nil {
+		slog.Error("failed to get study", slog.String("error", err.Error()))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get study"})
+		return
+	}
+
 	surveyVersions, err := surveydefinition.PrepareSurveyInfosFromDB(
 		h.studyDBConn,
 		token.InstanceID,
@@ -4092,8 +4148,15 @@ func (h *HttpEndpoints) getStudyResponseById(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create response parser"})
 		return
 	}
+	if study.Configs.TrackAccount {
+		respParser.EnableAccountTracking()
+	}
 
-	resp, err := respParser.ParseResponse(&rawResponse)
+	trackingInfo := surveyresponses.AccountTrackingInfo{}
+	if study.Configs.TrackAccount {
+		trackingInfo = h.getResponseAccountTrackingInfo(token.InstanceID, studyKey, rawResponse.ParticipantID)
+	}
+	resp, err := respParser.ParseResponse(&rawResponse, trackingInfo)
 	if err != nil {
 		slog.Error("failed to parse response", slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse response"})
