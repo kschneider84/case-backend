@@ -70,17 +70,6 @@ func (dbService *ParticipantUserDBService) reservePasswordResetAt(instanceID, ac
 	defer cancel()
 	collection := dbService.collectionPasswordResetLimits(instanceID)
 
-	// Initialize only a missing document. Existing collection history is retained;
-	// obsolete reset timestamps in user records are intentionally ignored.
-	_, err = collection.UpdateOne(ctx, bson.M{"_id": user.ID}, bson.M{"$setOnInsert": passwordResetLimit{
-		UserID: user.ID, Timestamps: []int64{}, ExpiresAt: time.Unix(now+PasswordResetWindow, 0),
-	}}, options.Update().SetUpsert(true))
-	// Concurrent first requests can race to create the same _id. The winner's
-	// document is authoritative; losers still have to pass the atomic check below.
-	if err != nil && !mongo.IsDuplicateKeyError(err) {
-		return userTypes.User{}, err
-	}
-
 	recent := func(since int64) bson.M {
 		return bson.M{"$filter": bson.M{
 			"input": bson.M{"$ifNull": bson.A{"$timestamps", bson.A{}}},
@@ -96,13 +85,34 @@ func (dbService *ParticipantUserDBService) reservePasswordResetAt(instanceID, ac
 		"expiresAt":  time.Unix(now+PasswordResetWindow, 0),
 	}}}}
 	// No upsert here: checking both limits and appending is a single atomic write.
-	// A rejection does not change timestamps or extend TTL. If TTL deletes the
-	// document between initialization and this write, fail closed for this request.
+	// A rejection does not change timestamps or extend TTL.
 	result, err := collection.UpdateOne(ctx, filter, update)
 	if err != nil {
 		return userTypes.User{}, err
 	}
-	if result.ModifiedCount != 1 {
+	if result.MatchedCount == 1 {
+		return user, nil
+	}
+
+	// A missing document (including one deleted by TTL) is created with its first
+	// reservation atomically. Never overwrite an existing document's history.
+	_, err = collection.InsertOne(ctx, passwordResetLimit{
+		UserID: user.ID, Timestamps: []int64{now}, ExpiresAt: time.Unix(now+PasswordResetWindow, 0),
+	})
+	if err == nil {
+		return user, nil
+	}
+	if !mongo.IsDuplicateKeyError(err) {
+		return userTypes.User{}, err
+	}
+
+	// The document already exists or another request created it. Retry the atomic
+	// check once; an existing document alone does not grant a reservation.
+	result, err = collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return userTypes.User{}, err
+	}
+	if result.MatchedCount != 1 {
 		return userTypes.User{}, ErrPasswordResetRateLimited
 	}
 	return user, nil
