@@ -245,6 +245,9 @@ func TestPasswordResetReservation(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			user := seed(nil, true)
+			if err := service.SetUserAttribute("test", user.ID.Hex(), "test", map[string]any{"value": "test"}); err != nil {
+				t.Fatal(err)
+			}
 			if withLimit {
 				if _, err := service.reservePasswordResetAt("test", user.Account.AccountID, now); err != nil {
 					t.Fatal(err)
@@ -261,6 +264,9 @@ func TestPasswordResetReservation(t *testing.T) {
 			}
 			if _, err := service.GetUser("test", user.ID.Hex()); !errors.Is(err, mongo.ErrNoDocuments) {
 				t.Fatalf("user was not deleted: %v", err)
+			}
+			if attributes, err := service.GetAttributesForUser("test", user.ID.Hex()); err != nil || len(attributes) != 0 {
+				t.Fatalf("user attributes were not deleted: %v, error: %v", attributes, err)
 			}
 			if err := service.collectionPasswordResetLimits("test").FindOne(ctx, bson.M{"_id": user.ID}).Err(); !errors.Is(err, mongo.ErrNoDocuments) {
 				t.Fatalf("reset history was not deleted: %v", err)

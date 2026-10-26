@@ -232,13 +232,15 @@ func (dbService *ParticipantUserDBService) DeleteUser(instanceID, userID string)
 		return errors.New("no user found with the given id")
 	}
 
-	// The limit document uses the same user ID. An absent document is fine.
-	if _, err = dbService.collectionPasswordResetLimits(instanceID).DeleteOne(ctx, filter); err != nil {
+	if err = dbService.DeleteAllUserAttributes(ctx, instanceID, userID); err != nil {
 		return err
 	}
 
-	if err = dbService.DeleteAllUserAttributes(ctx, instanceID, userID); err != nil {
-		return err
+	// Clean up temporary rate-limit state last. An absent document is fine;
+	// on failure, the TTL index will eventually remove the remaining document.
+	if _, err = dbService.collectionPasswordResetLimits(instanceID).DeleteOne(ctx, filter); err != nil {
+		slog.Error("failed to delete password reset limits after user deletion",
+			slog.String("instanceID", instanceID), slog.String("userID", userID), slog.String("error", err.Error()))
 	}
 	return nil
 }
