@@ -52,25 +52,29 @@ func (h *HttpEndpoints) initiatePasswordReset(c *gin.Context) {
 
 	req.Email = umUtils.SanitizeEmail(req.Email)
 
-	// All account-dependent outcomes have the same response and target duration.
-	// Waiting until a shared deadline also absorbs normal DB processing time.
+	// Send every outcome after the same target duration, allowing for DB processing
+	// time. Operations exceeding the target duration are answered when they finish.
+	status := http.StatusOK
+	response := gin.H{"message": "password reset initiated"}
 	defer func() {
 		time.Sleep(time.Until(responseAt))
-		c.JSON(http.StatusOK, gin.H{"message": "If an eligible account exists, a password reset email will be sent. Please check your inbox and wait before trying again."})
+		c.JSON(status, response)
 	}()
 
 	user, err := h.userDBConn.ReservePasswordReset(req.InstanceID, req.Email)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		slog.Info("password reset not accepted: account missing", slog.String("email", req.Email), slog.String("instanceID", req.InstanceID))
+		slog.Warn("password reset not accepted: non-existing account", slog.String("email", req.Email), slog.String("instanceID", req.InstanceID))
+		status, response = http.StatusInternalServerError, gin.H{"error": "internal server error"}
 		return
 	}
 	if errors.Is(err, userDB.ErrPasswordResetRateLimited) {
-		slog.Info("password reset rate limited", slog.String("email", req.Email), slog.String("instanceID", req.InstanceID))
+		slog.Warn("password reset rate limited", slog.String("email", req.Email), slog.String("instanceID", req.InstanceID))
+		status, response = http.StatusTooManyRequests, gin.H{"error": "rate limited"}
 		return
 	}
 	if err != nil {
-		// Fail closed without exposing account-dependent DB failures to callers.
 		slog.Error("password reset reservation failed", slog.String("instanceID", req.InstanceID), slog.String("error", err.Error()))
+		status, response = http.StatusInternalServerError, gin.H{"error": "internal server error"}
 		return
 	}
 
