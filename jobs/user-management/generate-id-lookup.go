@@ -40,11 +40,13 @@ func generateProfileIDLookup() {
 							continue
 						}
 
-						// Create missing mappings and add the user ID to existing ones.
-						err = studyDBService.EnsureConfidentialIDMapEntry(instanceID, confidentialID, profileID, user.ID.Hex(), studyKey)
+						_, err = studyDBService.GetProfileIDFromConfidentialID(instanceID, confidentialID, studyKey)
 						if err != nil {
-							slog.Error("Error saving participant ID profile lookup", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("error", err.Error()))
-							continue
+							// Create new lookup entry
+							if err = studyDBService.AddConfidentialIDMapEntry(instanceID, confidentialID, profileID, studyKey); err != nil {
+								slog.Error("Error saving participant ID profile lookup", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("error", err.Error()))
+								continue
+							}
 						}
 					}
 				}
