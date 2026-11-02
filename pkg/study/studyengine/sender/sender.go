@@ -61,17 +61,17 @@ func (s *StudyMessageSender) SendInstantStudyEmail(
 		return errors.New("sender not initialized correctly")
 	}
 
-	// Map confidential participant id to profile id
-	profileID, err := s.studyDB.GetProfileIDFromConfidentialID(instanceID, confidentialPID, studyKey)
-	if err != nil || profileID == "" {
-		slog.Error("profileID lookup failed", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("confidentialPID", confidentialPID))
+	// Resolve the recorded user and require the exact mapped profile.
+	lookup, err := s.studyDB.GetConfidentialIDMapEntry(instanceID, confidentialPID, studyKey)
+	if err != nil {
+		slog.Error("profileID lookup failed", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("confidentialPID", confidentialPID), slog.String("error", err.Error()))
 		return errors.New("profileID lookup failed")
 	}
 
-	// Load user
-	user, err := s.participantUserDB.GetUserByProfileID(instanceID, profileID)
+	profileID := lookup.ProfileID
+	user, currentProfile, err := s.participantUserDB.GetUserAndProfile(instanceID, lookup.UserID, profileID)
 	if err != nil {
-		slog.Error("user lookup failed", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("profileID", profileID), slog.String("error", err.Error()))
+		slog.Error("user/profile lookup failed", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("profileID", profileID), slog.String("error", err.Error()))
 		return err
 	}
 
@@ -82,19 +82,6 @@ func (s *StudyMessageSender) SendInstantStudyEmail(
 		return err
 	}
 	to := []string{email.Email}
-
-	if len(user.Profiles) == 0 {
-		slog.Error("user has no profiles", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("userID", user.ID.Hex()))
-		return errors.New("no profiles found for user")
-	}
-
-	currentProfile := user.Profiles[0]
-	for _, p := range user.Profiles {
-		if p.ID.Hex() == profileID {
-			currentProfile = p
-			break
-		}
-	}
 
 	// Build payload
 	payload := map[string]string{

@@ -383,7 +383,7 @@ func (h *HttpEndpoints) enterStudy(c *gin.Context) {
 
 	isMainProfile := profile.MainProfile
 
-	result, err := studyService.OnEnterStudy(token.InstanceID, studyKey, req.ProfileID, user.Account.AccountID, isMainProfile)
+	result, err := studyService.OnEnterStudy(token.InstanceID, studyKey, req.ProfileID, user.ID.Hex(), isMainProfile)
 	if err != nil {
 		slog.Error("error entering study", slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error entering study"})
@@ -429,7 +429,7 @@ func (h *HttpEndpoints) customStudyEvent(c *gin.Context) {
 
 	slog.Debug("custom study event", slog.String("instanceID", token.InstanceID), slog.String("userID", token.Subject), slog.String("studyKey", studyKey), slog.String("eventKey", req.EventKey))
 
-	result, err := studyService.OnCustomStudyEvent(token.InstanceID, studyKey, req.ProfileID, req.EventKey, req.Payload)
+	result, err := studyService.OnCustomStudyEvent(token.InstanceID, studyKey, req.ProfileID, token.Subject, req.EventKey, req.Payload)
 	if err != nil {
 		slog.Error("error firing custom study event", slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error firing custom study event"})
@@ -462,7 +462,7 @@ func (h *HttpEndpoints) submitSurveyEvent(c *gin.Context) {
 
 	slog.Debug("submitting survey", slog.String("instanceID", token.InstanceID), slog.String("userID", token.Subject), slog.String("studyKey", studyKey), slog.String("profileID", req.ProfileID))
 
-	result, err := studyService.OnSubmitResponse(token.InstanceID, studyKey, req.ProfileID, req.Response)
+	result, err := studyService.OnSubmitResponse(token.InstanceID, studyKey, req.ProfileID, token.Subject, req.Response)
 	if err != nil {
 		slog.Error("error submitting survey", slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error submitting survey"})
@@ -494,7 +494,7 @@ func (h *HttpEndpoints) leaveStudyEvent(c *gin.Context) {
 
 	slog.Debug("leaving study", slog.String("instanceID", token.InstanceID), slog.String("userID", token.Subject), slog.String("studyKey", studyKey))
 
-	result, err := studyService.OnLeaveStudy(token.InstanceID, studyKey, req.ProfileID)
+	result, err := studyService.OnLeaveStudy(token.InstanceID, studyKey, req.ProfileID, token.Subject)
 	if err != nil {
 		slog.Error("error leaving study", slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error leaving study"})
@@ -525,7 +525,7 @@ func (h *HttpEndpoints) mergeTempParticipant(c *gin.Context) {
 		return
 	}
 
-	result, err := studyService.OnMergeTempParticipant(token.InstanceID, studyKey, req.ProfileID, req.TemporaryParticipantID)
+	result, err := studyService.OnMergeTempParticipant(token.InstanceID, studyKey, req.ProfileID, token.Subject, req.TemporaryParticipantID)
 	if err != nil {
 		slog.Error("error merging temporary participant", slog.String("error", err.Error()))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error merging temporary participant"})
@@ -573,6 +573,7 @@ func (h *HttpEndpoints) mergeVirtualParticipant(c *gin.Context) {
 		token.InstanceID,
 		studyKey,
 		req.ProfileID,
+		token.Subject,
 		req.VirtualParticipantID,
 		req.LinkingCodeKey,
 		req.LinkingCodeValue,

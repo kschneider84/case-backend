@@ -158,6 +158,7 @@ run_tasks:
   send_reminder_to_confirm_accounts: true
   handle_inactive_users: true
   generate_profile_id_lookup: true
+  migrate_account_info: false
 ```
 
 ## Usage
@@ -209,6 +210,32 @@ All major operations can be individually enabled or disabled:
 - **send_reminder_to_confirm_accounts**: Send verification reminders
 - **handle_inactive_users**: Manage inactive user workflow
 - **generate_profile_id_lookup**: Update profile ID mappings
+- **migrate_account_info**: Recompute account grouping from stable user document IDs
+
+### Account Grouping Migration
+
+Account grouping (`hashedAccountID`, exported as `account_id`) now pseudonymizes
+the stable user document `_id` using the study's configured ID mapping method and
+secrets. Changing the login email no longer changes the grouping for newly enrolled
+profiles on the same user.
+
+After deploying the updated participant API, enable `run_tasks.migrate_account_info`
+in the user-management job configuration and run the job. Disable unrelated tasks
+for a migration-only run. The existing task replaces email-derived grouping values
+and fills missing account info for current users and profiles in all studies with
+`trackAccount` enabled, including inactive studies. It updates only `hashedAccountID`,
+`isMainProfile`, and `modifiedAt`; it does not recreate missing participants or update
+participants marked `accountDeleted`, temporary, or virtual. Repeated runs leave
+already-correct values unchanged. Check both `migratedCount` and `failedCount` in the
+completion log, and check for scan errors.
+
+Existing `account_id` values change after migration. Regenerate exports that need
+consistent grouping; previously downloaded exports retain their old values. Until
+migration completes, existing records may still contain email-derived grouping.
+Participants whose users or profiles have been deleted cannot be recomputed by this
+task and retain any existing value. Participant IDs and profile lookup mappings are
+unchanged. Use the same secrets and study configuration as the participant API,
+and stop older participant API/job versions before migration to avoid mixed values.
 
 ## Configuration Details
 

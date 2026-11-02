@@ -106,6 +106,39 @@ func (dbService *StudyDBService) SaveParticipantState(instanceID string, studyKe
 	return elem, err
 }
 
+// UpdateParticipantAccountInfo migrates account grouping without replacing participant state.
+// Missing and deleted participants are left untouched, and repeated runs make no changes.
+func (dbService *StudyDBService) UpdateParticipantAccountInfo(instanceID, studyKey, participantID, hashedAccountID string, isMainProfile bool) (bool, error) {
+	if hashedAccountID == "" {
+		return false, errors.New("hashed account ID must not be empty")
+	}
+
+	ctx, cancel := dbService.getContext()
+	defer cancel()
+
+	filter := bson.M{
+		"participantID": participantID,
+		"studyStatus": bson.M{"$in": []string{
+			studyTypes.PARTICIPANT_STUDY_STATUS_ACTIVE,
+			studyTypes.PARTICIPANT_STUDY_STATUS_EXITED,
+		}},
+		"$or": bson.A{
+			bson.M{"hashedAccountID": bson.M{"$ne": hashedAccountID}},
+			bson.M{"isMainProfile": bson.M{"$ne": isMainProfile}},
+		},
+	}
+	update := bson.M{"$set": bson.M{
+		"hashedAccountID": hashedAccountID,
+		"isMainProfile":   isMainProfile,
+		"modifiedAt":      time.Now().Unix(),
+	}}
+	result, err := dbService.collectionParticipants(instanceID, studyKey).UpdateOne(ctx, filter, update)
+	if err != nil {
+		return false, err
+	}
+	return result.ModifiedCount > 0, nil
+}
+
 func (dbService *StudyDBService) UpdateParticipantIfNotModified(instanceID string, studyKey string, pState studyTypes.Participant) (studyTypes.Participant, error) {
 	ctx, cancel := dbService.getContext()
 	defer cancel()

@@ -23,7 +23,7 @@ type Participant struct {
 	AssignedSurveys     []AssignedSurvey     `bson:"assignedSurveys" json:"assignedSurveys"`
 	LastSubmissions     map[string]int64     `bson:"lastSubmission" json:"lastSubmissions"` // surveyKey with timestamp
 	Messages            []ParticipantMessage `bson:"messages" json:"messages"`
-	HashedAccountID     *string              `bson:"hashedAccountID,omitempty" json:"hashedAccountID,omitempty"`
+	HashedAccountID     *string              `bson:"hashedAccountID,omitempty" json:"hashedAccountID,omitempty"` // study-specific pseudonym of the stable user document ID
 	IsMainProfile       *bool                `bson:"isMainProfile,omitempty" json:"isMainProfile,omitempty"`
 }
 

@@ -165,6 +165,35 @@ func (dbService *ParticipantUserDBService) GetUserByProfileID(instanceID, profil
 	return user, err
 }
 
+// GetUserAndProfile uses the recorded user ID when available, falling back by
+// profile ID only for legacy mappings without a user ID. The exact profile must
+// belong to the resolved user; missing users or mismatches never trigger fallback.
+func (dbService *ParticipantUserDBService) GetUserAndProfile(instanceID, userID, profileID string) (umTypes.User, umTypes.Profile, error) {
+	if profileID == "" {
+		return umTypes.User{}, umTypes.Profile{}, errors.New("profile ID must not be empty")
+	}
+
+	var user umTypes.User
+	var err error
+	if userID != "" {
+		user, err = dbService.GetUser(instanceID, userID)
+		if err != nil {
+			return umTypes.User{}, umTypes.Profile{}, fmt.Errorf("mapped user %q lookup failed: %w", userID, err)
+		}
+	} else {
+		user, err = dbService.GetUserByProfileID(instanceID, profileID)
+		if err != nil {
+			return umTypes.User{}, umTypes.Profile{}, fmt.Errorf("legacy user lookup for profile %q failed: %w", profileID, err)
+		}
+	}
+
+	profile, err := user.FindProfile(profileID)
+	if err != nil {
+		return umTypes.User{}, umTypes.Profile{}, fmt.Errorf("mapped profile %q is missing from user %q: %w", profileID, user.ID.Hex(), err)
+	}
+	return user, profile, nil
+}
+
 func (dbService *ParticipantUserDBService) SaveFailedLoginAttempt(instanceID string, userID string) error {
 	ctx, cancel := dbService.getContext()
 	defer cancel()
@@ -290,5 +319,5 @@ func (dbService *ParticipantUserDBService) FindAndExecuteOnUsers(
 			continue
 		}
 	}
-	return nil
+	return cursor.Err()
 }

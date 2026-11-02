@@ -42,7 +42,7 @@ func Init(
 	studyengine.CurrentStudyEngine.RegisterStudyMessageSender(studyMessageSender)
 }
 
-func OnEnterStudy(instanceID string, studyKey string, profileID string, accountID string, isMainProfile bool) (result []studyTypes.AssignedSurvey, err error) {
+func OnEnterStudy(instanceID string, studyKey string, profileID string, userID string, isMainProfile bool) (result []studyTypes.AssignedSurvey, err error) {
 	study, err := getStudyIfActive(instanceID, studyKey)
 	if err != nil {
 		slog.Error("error getting study", slog.String("error", err.Error()))
@@ -54,6 +54,8 @@ func OnEnterStudy(instanceID string, studyKey string, profileID string, accountI
 		slog.Error("Error computing participant IDs", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("error", err.Error()))
 		return
 	}
+
+	repairParticipantProfileLookup(instanceID, studyKey, participantID, confidentialID, profileID, userID)
 
 	// To improve privace, we reduce resolution of the timestamp to the day
 	noon := time.Now().Truncate(24 * time.Hour).Add(12 * time.Hour).Unix()
@@ -82,20 +84,14 @@ func OnEnterStudy(instanceID string, studyKey string, profileID string, accountI
 		}
 	}
 
-	if isNewParticipant {
-		// save particicpant id profile lookup
-		if err = studyDBService.AddConfidentialIDMapEntry(instanceID, confidentialID, profileID, studyKey); err != nil {
-			slog.Error("Error saving participant ID profile lookup", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("error", err.Error()))
-		}
-		if study.Configs.TrackAccount && accountID != "" {
-			// reuse same hashing mechanism to pseudonymize the account ID
-			hashedAccountID, hashErr := studyUtils.ProfileIDtoParticipantID(accountID, globalSecret, study.SecretKey, study.Configs.IdMappingMethod)
-			if hashErr != nil {
-				slog.Error("Error hashing account ID", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("error", hashErr.Error()))
-			} else {
-				pState.HashedAccountID = &hashedAccountID
-				pState.IsMainProfile = &isMainProfile
-			}
+	if isNewParticipant && study.Configs.TrackAccount {
+		// Account tracking is best effort: log invalid IDs but allow enrollment to continue.
+		hashedAccountID, hashErr := ComputeHashedAccountID(study, userID)
+		if hashErr != nil {
+			slog.Error("Error hashing account ID", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("error", hashErr.Error()))
+		} else {
+			pState.HashedAccountID = &hashedAccountID
+			pState.IsMainProfile = &isMainProfile
 		}
 	}
 
@@ -216,7 +212,7 @@ func OnRegisterVirtualParticipant(instanceID string, studyKey string) (pState *s
 	return
 }
 
-func OnCustomStudyEvent(instanceID string, studyKey string, profileID string, eventKey string, payload map[string]interface{}) (result []studyTypes.AssignedSurvey, err error) {
+func OnCustomStudyEvent(instanceID string, studyKey string, profileID string, userID string, eventKey string, payload map[string]interface{}) (result []studyTypes.AssignedSurvey, err error) {
 	study, err := getStudyIfActive(instanceID, studyKey)
 	if err != nil {
 		slog.Error("error getting study", slog.String("error", err.Error()))
@@ -228,6 +224,8 @@ func OnCustomStudyEvent(instanceID string, studyKey string, profileID string, ev
 		slog.Error("Error computing participant IDs", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("error", err.Error()))
 		return
 	}
+
+	repairParticipantProfileLookup(instanceID, studyKey, participantID, confidentialID, profileID, userID)
 
 	result, err = onCustomStudyEventHandler(
 		instanceID,
@@ -322,7 +320,7 @@ func onCustomStudyEventHandler(
 	return
 }
 
-func OnMergeTempParticipant(instanceID string, studyKey string, profileID string, temporaryParticipantID string) (result []studyTypes.AssignedSurvey, err error) {
+func OnMergeTempParticipant(instanceID string, studyKey string, profileID string, userID string, temporaryParticipantID string) (result []studyTypes.AssignedSurvey, err error) {
 	study, err := getStudyIfActive(instanceID, studyKey)
 	if err != nil {
 		slog.Error("error getting study", slog.String("error", err.Error()))
@@ -355,6 +353,8 @@ func OnMergeTempParticipant(instanceID string, studyKey string, profileID string
 		return
 	}
 
+	repairParticipantProfileLookup(instanceID, studyKey, participantID, confidentialID, profileID, userID)
+
 	pState, err := studyDBService.GetParticipantByID(instanceID, studyKey, participantID)
 	if err != nil {
 		slog.Info("participant not found, creating new one", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("participantID", participantID))
@@ -362,12 +362,6 @@ func OnMergeTempParticipant(instanceID string, studyKey string, profileID string
 			ParticipantID: participantID,
 			StudyStatus:   studyTypes.PARTICIPANT_STUDY_STATUS_ACTIVE,
 			EnteredAt:     time.Now().Unix(),
-		}
-
-		// save lookup for participant ID
-		err = studyDBService.AddConfidentialIDMapEntry(instanceID, confidentialID, profileID, studyKey)
-		if err != nil {
-			slog.Error("Error saving participant ID lookup", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("participantID", participantID), slog.String("error", err.Error()))
 		}
 	}
 
@@ -387,6 +381,7 @@ func OnMergeVirtualParticipant(
 	instanceID string,
 	studyKey string,
 	profileID string,
+	userID string,
 	virtualParticipantID string,
 	linkingCodeKey string,
 	linkingCodeValue string,
@@ -428,6 +423,8 @@ func OnMergeVirtualParticipant(
 		return
 	}
 
+	repairParticipantProfileLookup(instanceID, studyKey, participantID, confidentialID, profileID, userID)
+
 	pState, err := studyDBService.GetParticipantByID(instanceID, studyKey, participantID)
 	if err != nil {
 		slog.Info("participant not found, creating new one", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("participantID", participantID))
@@ -435,12 +432,6 @@ func OnMergeVirtualParticipant(
 			ParticipantID: participantID,
 			StudyStatus:   studyTypes.PARTICIPANT_STUDY_STATUS_ACTIVE,
 			EnteredAt:     time.Now().Unix(),
-		}
-
-		// save lookup for participant ID
-		err = studyDBService.AddConfidentialIDMapEntry(instanceID, confidentialID, profileID, studyKey)
-		if err != nil {
-			slog.Error("Error saving participant ID lookup", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("participantID", participantID), slog.String("error", err.Error()))
 		}
 	}
 
@@ -560,7 +551,7 @@ func mergeParticipants(
 	return
 }
 
-func OnSubmitResponse(instanceID string, studyKey string, profileID string, response studyTypes.SurveyResponse) (result []studyTypes.AssignedSurvey, err error) {
+func OnSubmitResponse(instanceID string, studyKey string, profileID string, userID string, response studyTypes.SurveyResponse) (result []studyTypes.AssignedSurvey, err error) {
 	study, err := getStudyIfActive(instanceID, studyKey)
 	if err != nil {
 		slog.Error("error getting study", slog.String("error", err.Error()))
@@ -572,6 +563,8 @@ func OnSubmitResponse(instanceID string, studyKey string, profileID string, resp
 		slog.Error("Error computing participant IDs", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("error", err.Error()))
 		return
 	}
+
+	repairParticipantProfileLookup(instanceID, studyKey, participantID, confidentialID, profileID, userID)
 
 	statusFilter := studyTypes.PARTICIPANT_STUDY_STATUS_ACTIVE
 
@@ -1109,7 +1102,7 @@ func OnStudyTimer(instanceID string, study *studyTypes.Study) {
 	}
 }
 
-func OnLeaveStudy(instanceID string, studyKey string, profileID string) (result []studyTypes.AssignedSurvey, err error) {
+func OnLeaveStudy(instanceID string, studyKey string, profileID string, userID string) (result []studyTypes.AssignedSurvey, err error) {
 	study, err := getStudyIfActive(instanceID, studyKey)
 	if err != nil {
 		slog.Error("error getting study", slog.String("error", err.Error()))
@@ -1133,6 +1126,8 @@ func OnLeaveStudy(instanceID string, studyKey string, profileID string) (result 
 		err = errors.New("participant is not active")
 		return
 	}
+
+	repairParticipantProfileLookup(instanceID, studyKey, participantID, confidentialID, profileID, userID)
 
 	pState.StudyStatus = studyTypes.PARTICIPANT_STUDY_STATUS_EXITED
 

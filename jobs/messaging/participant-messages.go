@@ -52,24 +52,16 @@ func handleParticipantMessages(wg *sync.WaitGroup) {
 					}
 
 					// find user:
-					profileID, err := getProfileID(instanceID, study, p)
+					lookup, err := getProfileIDLookup(instanceID, study, p)
 					if err != nil {
 						slog.Error("Error getting profileID", slog.String("instanceID", instanceID), slog.String("studyKey", study.Key), slog.String("participantID", p.ParticipantID), slog.String("error", err.Error()))
 						return nil
 					}
 
-					user, err := participantUserDBService.GetUserByProfileID(instanceID, profileID)
+					user, currentProfile, err := participantUserDBService.GetUserAndProfile(instanceID, lookup.UserID, lookup.ProfileID)
 					if err != nil {
-						slog.Error("Error getting user", slog.String("instanceID", instanceID), slog.String("studyKey", study.Key), slog.String("participantID", p.ParticipantID), slog.String("error", err.Error()))
+						slog.Error("Error getting participant user/profile", slog.String("instanceID", instanceID), slog.String("studyKey", study.Key), slog.String("participantID", p.ParticipantID), slog.String("error", err.Error()))
 						return nil
-					}
-
-					currentProfile := user.Profiles[0]
-					for _, profile := range user.Profiles {
-						if profile.ID.Hex() == profileID {
-							currentProfile = profile
-							break
-						}
 					}
 
 					sentMessages := []string{}
@@ -189,13 +181,13 @@ func getRelevantMessages(p studyTypes.Participant) []studyTypes.StudyMessage {
 	return messages
 }
 
-func getProfileID(instanceID string, study studyTypes.Study, p studyTypes.Participant) (string, error) {
+func getProfileIDLookup(instanceID string, study studyTypes.Study, p studyTypes.Participant) (studyDB.ConfidentialIDMapEntry, error) {
 	confidentialPID, err := studyservice.ComputeConfidentialIDForParticipant(study, p.ParticipantID)
 	if err != nil {
-		return "", err
+		return studyDB.ConfidentialIDMapEntry{}, err
 	}
 
-	return studyDBService.GetProfileIDFromConfidentialID(
+	return studyDBService.GetConfidentialIDMapEntry(
 		instanceID,
 		confidentialPID,
 		study.Key,

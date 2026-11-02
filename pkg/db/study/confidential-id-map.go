@@ -1,6 +1,7 @@
 package study
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -54,21 +55,43 @@ func (dbService *StudyDBService) CreateDefaultIndexesForConfidentialIDMapCollect
 	}
 }
 
-func (dbService *StudyDBService) AddConfidentialIDMapEntry(instanceID, confidentialID, profileID, studyKey string) error {
+// EnsureConfidentialIDMapEntry repairs missing mappings and records the verified owner.
+// The profile ID in an existing mapping must match before its user ID can be updated.
+func (dbService *StudyDBService) EnsureConfidentialIDMapEntry(instanceID, confidentialID, profileID, userID, studyKey string) error {
+	if userID == "" {
+		return errors.New("user ID must not be empty")
+	}
+
 	ctx, cancel := dbService.getContext()
 	defer cancel()
 
-	entry := bson.M{
+	filter := bson.M{
 		"confidentialID": confidentialID,
-		"profileID":      profileID,
 		"studyKey":       studyKey,
+		"profileID":      profileID,
 	}
-
-	_, err := dbService.collectionConfidentialIDMap(instanceID).InsertOne(ctx, entry)
+	update := bson.M{"$set": bson.M{"userID": userID}}
+	collection := dbService.collectionConfidentialIDMap(instanceID)
+	_, err := collection.UpdateOne(ctx, filter, update, options.Update().SetUpsert(true))
+	if mongo.IsDuplicateKeyError(err) {
+		// A concurrent insert of the same mapping is safe; a different profile is not.
+		result, retryErr := collection.UpdateOne(ctx, filter, update)
+		if retryErr != nil {
+			return retryErr
+		}
+		if result.MatchedCount > 0 {
+			return nil
+		}
+	}
 	return err
 }
 
-func (dbService *StudyDBService) GetProfileIDFromConfidentialID(instanceID, confidentialID, studyKey string) (string, error) {
+type ConfidentialIDMapEntry struct {
+	ProfileID string `bson:"profileID"`
+	UserID    string `bson:"userID"`
+}
+
+func (dbService *StudyDBService) GetConfidentialIDMapEntry(instanceID, confidentialID, studyKey string) (ConfidentialIDMapEntry, error) {
 	ctx, cancel := dbService.getContext()
 	defer cancel()
 
@@ -77,11 +100,14 @@ func (dbService *StudyDBService) GetProfileIDFromConfidentialID(instanceID, conf
 		"studyKey":       studyKey,
 	}
 
-	var result struct {
-		ProfileID string `bson:"profileID"`
-	}
+	var result ConfidentialIDMapEntry
 	err := dbService.collectionConfidentialIDMap(instanceID).FindOne(ctx, filter).Decode(&result)
-	return result.ProfileID, err
+	return result, err
+}
+
+func (dbService *StudyDBService) GetProfileIDFromConfidentialID(instanceID, confidentialID, studyKey string) (string, error) {
+	entry, err := dbService.GetConfidentialIDMapEntry(instanceID, confidentialID, studyKey)
+	return entry.ProfileID, err
 }
 
 func (dbService *StudyDBService) RemoveConfidentialIDMapEntriesForStudy(instanceID, studyKey string) error {

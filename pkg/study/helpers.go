@@ -32,6 +32,16 @@ func getStudyIfActive(instanceID string, studyKey string) (study studyTypes.Stud
 	return study, nil
 }
 
+// Called only by registered-profile event paths, after the API has verified profile ownership.
+// Background events cannot recover the profile ID, and deletion must not recreate mappings.
+// Repair is best effort: a lookup write failure must not block the participant's event.
+func repairParticipantProfileLookup(instanceID, studyKey, participantID, confidentialID, profileID, userID string) {
+	err := studyDBService.EnsureConfidentialIDMapEntry(instanceID, confidentialID, profileID, userID, studyKey)
+	if err != nil {
+		slog.Error("Error ensuring participant ID profile lookup", slog.String("instanceID", instanceID), slog.String("studyKey", studyKey), slog.String("participantID", participantID), slog.String("error", err.Error()))
+	}
+}
+
 func getAndPerformStudyRules(instanceID, studyKey string, pState studyTypes.Participant, currentEvent studyengine.StudyEvent) (newState studyengine.ActionData, err error) {
 	newState = studyengine.ActionData{
 		PState:          pState,
