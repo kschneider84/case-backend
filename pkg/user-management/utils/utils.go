@@ -84,8 +84,18 @@ func BlurEmailAddress(email string) string {
 
 // CheckPasswordFormat to check if password fulfills password rules
 func CheckPasswordFormat(password string) bool {
-	pl := len(password)
-	if pl < PASSWORD_MIN_LEN || pl > PASSWORD_MAX_LEN {
+	// Count UTF-16 code units, matching JavaScript string.length.
+	pl := 0
+	for _, r := range password {
+		pl++
+		if r > 0xFFFF {
+			pl++
+		}
+		if pl > PASSWORD_MAX_LEN {
+			return false
+		}
+	}
+	if pl < PASSWORD_MIN_LEN {
 		return false
 	}
 

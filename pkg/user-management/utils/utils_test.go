@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -71,6 +72,34 @@ func TestCheckPasswordFormat(t *testing.T) {
 			t.Error("should be true")
 		}
 	})
+}
+
+func TestCheckPasswordFormatUTF16Length(t *testing.T) {
+	for _, tc := range []struct {
+		name, password string
+		valid          bool
+	}{
+		{"empty", "", false},
+		{"ASCII 11", "aA1" + strings.Repeat("x", 8), false},
+		{"ASCII 12", "aA1" + strings.Repeat("x", 9), true},
+		{"ASCII 512", "aA1" + strings.Repeat("x", 509), true},
+		{"ASCII 513", "aA1" + strings.Repeat("x", 510), false},
+		{"BMP 11", "aA1" + strings.Repeat("é", 8), false},
+		{"BMP 12", "aA1" + strings.Repeat("é", 9), true},
+		{"BMP 512", "aA1" + strings.Repeat("é", 509), true},
+		{"BMP 513", "aA1" + strings.Repeat("é", 510), false},
+		{"emoji 11", "aA1" + strings.Repeat("😀", 4), false},
+		{"emoji 12", "aA1x" + strings.Repeat("😀", 4), true},
+		{"emoji 512", "aA1x" + strings.Repeat("😀", 254), true},
+		{"emoji 513", "aA1" + strings.Repeat("😀", 255), false},
+		{"combining 12", "aA" + strings.Repeat("e\u0301", 5), true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := CheckPasswordFormat(tc.password); got != tc.valid {
+				t.Fatalf("CheckPasswordFormat() = %v, want %v", got, tc.valid)
+			}
+		})
+	}
 }
 
 func TestCheckEmailFormat(t *testing.T) {
