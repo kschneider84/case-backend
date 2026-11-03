@@ -106,6 +106,10 @@ func (h *HttpEndpoints) addNewProfileHandl(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot bind profile"})
 		return
 	}
+	if err := umUtils.ValidateProfileAlias(profile.Alias); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	user, err := h.userDBConn.GetUser(token.InstanceID, token.Subject)
 	if err != nil {
@@ -138,6 +142,10 @@ func (h *HttpEndpoints) updateProfileHandl(c *gin.Context) {
 	var profile userTypes.Profile
 	if err := c.ShouldBindJSON(&profile); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot bind profile"})
+		return
+	}
+	if err := umUtils.ValidateProfileAlias(profile.Alias); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
